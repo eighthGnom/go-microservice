@@ -14,10 +14,9 @@ import (
 	_ "github.com/jackc/pgx/v4/stdlib"
 )
 
-const (
-	bindAddr = "80"
-	maxTries = 10
-)
+const webPort = "80"
+
+var counts int64
 
 type Config struct {
 	DB     *sql.DB
@@ -26,61 +25,64 @@ type Config struct {
 
 func main() {
 	log.Println("Starting authentication service")
-	db := connectToDB()
-	if db == nil {
+
+	// connect to DB
+	conn := connectToDB()
+	if conn == nil {
 		log.Panic("Can't connect to Postgres!")
 	}
 
-	app := &Config{
-		DB:     db,
-		Models: data.New(db),
+	// set up config
+	app := Config{
+		DB:     conn,
+		Models: data.New(conn),
 	}
 
-	srv := http.Server{
-		Addr:    fmt.Sprintf(":%s", bindAddr),
+	srv := &http.Server{
+		Addr:    fmt.Sprintf(":%s", webPort),
 		Handler: app.routes(),
 	}
+
 	err := srv.ListenAndServe()
 	if err != nil {
 		log.Panic(err)
 	}
 }
 
-func dbCon(dsn string) (*sql.DB, error) {
+func openDB(dsn string) (*sql.DB, error) {
 	db, err := sql.Open("pgx", dsn)
 	if err != nil {
 		return nil, err
 	}
+
 	err = db.Ping()
 	if err != nil {
 		return nil, err
 	}
-	return db, nil
 
+	return db, nil
 }
 
 func connectToDB() *sql.DB {
 	dsn := os.Getenv("DSN")
 
-	count := 0
 	for {
-		db, err := dbCon(dsn)
-
+		connection, err := openDB(dsn)
 		if err != nil {
-			log.Println("Postgres not yet ready...")
-			count++
+			log.Println("Postgres not yet ready ...")
+			counts++
 		} else {
 			log.Println("Connected to Postgres!")
-			return db
+			return connection
 		}
 
-		if count > maxTries {
+		if counts > 10 {
 			log.Println(err)
 			return nil
 		}
-		log.Println("Backing off for two seconds...")
+
+		log.Println("Backing off for two seconds....")
 		time.Sleep(2 * time.Second)
 		continue
 	}
-
 }
